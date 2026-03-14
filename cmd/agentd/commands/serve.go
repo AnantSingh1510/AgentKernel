@@ -20,6 +20,19 @@ import (
 
 var listenAddr string
 
+func debaHandler(client *ollamaadapter.Client, stance string) negotiation.ModelHandler {
+	return func(ctx context.Context, prompt []byte) ([]byte, string, error) {
+		injected := fmt.Sprintf(
+			"You are a debater. You must argue %s the following position. "+
+				"Be direct, take a clear stance, and do not hedge. "+
+				"Give your best argument in 3-5 sentences.\n\nPosition: %s",
+			stance, string(prompt),
+		)
+		answer, reasoning, err := client.Handler()(ctx, []byte(injected))
+		return answer, reasoning, err
+	}
+}
+
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the agentd server",
@@ -35,9 +48,6 @@ var serveCmd = &cobra.Command{
 		as.Start(context.Background())
 		defer as.Stop()
 
-		// alpha  — llama3.2
-		// beta   — mistral
-		// arb    — llama3.2 (arbitrator sees both, model choice matters less here)
 		alpha := ollamaadapter.New("llama3.2")
 		beta  := ollamaadapter.New("mistral")
 		arb   := ollamaadapter.New("llama3.2")
@@ -47,19 +57,28 @@ var serveCmd = &cobra.Command{
 				AgentID:   "agent-alpha",
 				ModelName: "llama3.2",
 				Role:      negotiation.RoleProposer,
-				Handler:   alpha.Handler(),
+				Handler:   debaHandler(alpha, "FOR"),
 			},
 			{
 				AgentID:   "agent-beta",
 				ModelName: "mistral",
 				Role:      negotiation.RoleChallenger,
-				Handler:   beta.Handler(),
+				Handler:   debaHandler(beta, "AGAINST"),
 			},
 			{
 				AgentID:   "agent-arb",
 				ModelName: "llama3.2-arb",
 				Role:      negotiation.RoleArbitrator,
-				Handler:   arb.Handler(),
+				Handler: func(ctx context.Context, prompt []byte) ([]byte, string, error) {
+					injected := fmt.Sprintf(
+						"You are an impartial judge in a debate. "+
+							"Read the arguments FOR and AGAINST carefully. "+
+							"Give a balanced verdict: which argument is stronger and why. "+
+							"Be specific about which points were most convincing.\n\n%s",
+						string(prompt),
+					)
+					return arb.Handler()(ctx, []byte(injected))
+				},
 			},
 		}
 
