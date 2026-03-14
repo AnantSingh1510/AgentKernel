@@ -29,7 +29,7 @@ var negotiateCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
-		fmt.Printf("starting negotiatio\n\n")
+		fmt.Printf("starting negotiation\n\n")
 
 		resp, err := client.RunNegotiation(ctx, &proto.NegotiationRequest{
 			TaskId: fmt.Sprintf("cli-%d", time.Now().UnixMilli()),
