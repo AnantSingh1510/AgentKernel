@@ -24,17 +24,6 @@ func echoHandler() worker.Handler {
 	}
 }
 
-func slowHandler() worker.Handler {
-	return func(ctx context.Context, payload []byte) ([]byte, error) {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(500 * time.Millisecond):
-			return payload, nil
-		}
-	}
-}
-
 func TestAutoscalerStartsMinWorkers(t *testing.T) {
 	k := setupKernel(t)
 	defer k.Shutdown()
@@ -68,7 +57,6 @@ func TestAutoscalerRespectsMaxWorkers(t *testing.T) {
 	a.spawnWorker()
 	a.spawnWorker()
 	a.spawnWorker()
-
 	a.evaluate()
 
 	if a.WorkerCount() > cfg.MaxWorkers+3 {
@@ -83,22 +71,21 @@ func TestAutoscalerScalesDownToMin(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.MinWorkers = 1
 	cfg.MaxWorkers = 5
-	cfg.ScaleDownThreshold = 10
+	cfg.ScaleDownThreshold = 100
 	cfg.Interval = 10 * time.Second
 
 	a := New(k, cfg, echoHandler())
 	a.Start(context.Background())
 	defer a.Stop()
 
-	// spawn extras
 	a.spawnWorker()
 	a.spawnWorker()
 
 	if a.WorkerCount() < 3 {
 		t.Fatalf("expected at least 3 workers before scale down")
 	}
-	a.evaluate()
 
+	a.evaluate()
 
 	if a.WorkerCount() < cfg.MinWorkers {
 		t.Fatalf("worker count %d fell below minimum %d", a.WorkerCount(), cfg.MinWorkers)
@@ -116,8 +103,6 @@ func TestAutoscalerMetrics(t *testing.T) {
 	a := New(k, cfg, echoHandler())
 	a.Start(context.Background())
 	defer a.Stop()
-
-
 
 	m := a.Metrics()
 

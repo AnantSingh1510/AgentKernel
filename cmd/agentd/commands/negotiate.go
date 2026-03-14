@@ -26,10 +26,10 @@ var negotiateCmd = &cobra.Command{
 		defer conn.Close()
 
 		client := proto.NewAgentDClient(conn)
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 		defer cancel()
 
-		fmt.Printf("starting negotiation\n\n")
+		fmt.Printf("starting negotiation...\n\n")
 
 		resp, err := client.RunNegotiation(ctx, &proto.NegotiationRequest{
 			TaskId: fmt.Sprintf("cli-%d", time.Now().UnixMilli()),
@@ -39,16 +39,19 @@ var negotiateCmd = &cobra.Command{
 			return fmt.Errorf("negotiation failed: %w", err)
 		}
 
-		fmt.Printf("round:    %s\n", resp.RoundId)
-		fmt.Printf("answer:   %s\n", string(resp.FinalAnswer))
-		fmt.Printf("reasoning: %s\n", resp.Reasoning)
+		fmt.Printf("round:     %s\n", resp.RoundId)
+		fmt.Printf("answer:    %s\n\n", string(resp.FinalAnswer))
 
 		if len(resp.Dissents) == 0 {
-			fmt.Printf("\nall models agreed\n")
+			fmt.Println("all models agreed")
 		} else {
-			fmt.Printf("\ndissents (%d):\n", len(resp.Dissents))
+			fmt.Printf("dissents (%d):\n", len(resp.Dissents))
 			for _, d := range resp.Dissents {
-				fmt.Printf("  [%s / %s] argued: %s\n", d.ModelName, d.AgentId, d.Position)
+				pos := d.Position
+				if len(pos) > 120 {
+					pos = pos[:117] + "..."
+				}
+				fmt.Printf("  [%s] %s\n", d.ModelName, pos)
 			}
 		}
 		return nil

@@ -8,40 +8,37 @@ import (
 	"time"
 
 	"github.com/AnantSingh1510/agentd/kernel"
-	"github.com/AnantSingh1510/agentd/kernel/types"
 	"github.com/AnantSingh1510/agentd/worker"
 )
 
-// Config controls scaling behaviour
 type Config struct {
-	Interval time.Duration
-	WorkerCapacity int
-	ScaleUpThreshold int
+	Interval           time.Duration
+	WorkerCapacity     int
+	ScaleUpThreshold   int
 	ScaleDownThreshold int
-
-	MinWorkers int
-	MaxWorkers int
+	MinWorkers         int
+	MaxWorkers         int
 }
 
 func DefaultConfig() Config {
 	return Config{
 		Interval:           2 * time.Second,
 		WorkerCapacity:     4,
-		ScaleUpThreshold:   3,
-		ScaleDownThreshold: 1,
+		ScaleUpThreshold:   1,
+		ScaleDownThreshold: 0,
 		MinWorkers:         1,
 		MaxWorkers:         10,
 	}
 }
 
 type Autoscaler struct {
-	k        *kernel.Kernel
-	cfg      Config
-	handler  worker.Handler
-	workers  []*worker.Worker
-	mu       sync.Mutex
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
+	k       *kernel.Kernel
+	cfg     Config
+	handler worker.Handler
+	workers []*worker.Worker
+	mu      sync.Mutex
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
 }
 
 func New(k *kernel.Kernel, cfg Config, handler worker.Handler) *Autoscaler {
@@ -102,6 +99,7 @@ func (a *Autoscaler) loop(ctx context.Context) {
 
 func (a *Autoscaler) evaluate() {
 	workers := a.k.Scheduler.ListWorkers()
+	queued := a.k.Scheduler.QueueDepth()
 
 	totalCapacity := 0
 	totalActive := 0
@@ -109,8 +107,6 @@ func (a *Autoscaler) evaluate() {
 		totalCapacity += w.Capacity
 		totalActive += w.Active
 	}
-
-	queued := a.queueDepth(workers)
 
 	log.Printf("[autoscaler] workers=%d active=%d/%d queued=%d",
 		len(workers), totalActive, totalCapacity, queued)
@@ -131,16 +127,6 @@ func (a *Autoscaler) evaluate() {
 			totalActive, a.cfg.ScaleDownThreshold)
 		a.removeWorker()
 	}
-}
-
-func (a *Autoscaler) queueDepth(workers []*types.Worker) int {
-	full := 0
-	for _, w := range workers {
-		if w.Active >= w.Capacity {
-			full++
-		}
-	}
-	return full
 }
 
 func (a *Autoscaler) spawnWorker() {
@@ -164,7 +150,6 @@ func (a *Autoscaler) removeWorker() {
 		a.mu.Unlock()
 		return
 	}
-
 	last := a.workers[len(a.workers)-1]
 	a.workers = a.workers[:len(a.workers)-1]
 	a.mu.Unlock()
@@ -174,27 +159,25 @@ func (a *Autoscaler) removeWorker() {
 }
 
 type Metrics struct {
-	WorkerCount    int
-	TotalCapacity  int
-	TotalActive    int
-	QueueDepth     int
+	WorkerCount   int
+	TotalCapacity int
+	TotalActive   int
+	QueueDepth    int
 }
 
 func (a *Autoscaler) Metrics() Metrics {
 	workers := a.k.Scheduler.ListWorkers()
-
 	totalCapacity := 0
 	totalActive := 0
 	for _, w := range workers {
 		totalCapacity += w.Capacity
 		totalActive += w.Active
 	}
-
 	return Metrics{
 		WorkerCount:   a.WorkerCount(),
 		TotalCapacity: totalCapacity,
 		TotalActive:   totalActive,
-		QueueDepth:    a.queueDepth(workers),
+		QueueDepth:    a.k.Scheduler.QueueDepth(),
 	}
 }
 

@@ -156,3 +156,16 @@ func (s *Scheduler) ListWorkers() []*types.Worker {
 	}
 	return workers
 }
+
+// QueueDepth returns the number of tasks currently waiting to be assigned
+func (s *Scheduler) QueueDepth() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	count := 0
+	for _, t := range s.queue {
+		if t.Status == types.TaskStatusPending {
+			count++
+		}
+	}
+	return count
+}

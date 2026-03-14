@@ -10,9 +10,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/AnantSingh1510/agentd/kernel"
+	"github.com/AnantSingh1510/agentd/kernel/types"
 )
 
-// Role identifies a participant's function in the negotiation round
 type Role string
 
 const (
@@ -21,7 +21,6 @@ const (
 	RoleArbitrator Role = "arbitrator"
 )
 
-// Proposal is a single model's answer to the task
 type Proposal struct {
 	AgentID   string
 	ModelName string
@@ -30,16 +29,14 @@ type Proposal struct {
 	CreatedAt time.Time
 }
 
-// Challenge is a critique of a proposal by another agent
 type Challenge struct {
-	AgentID    string
-	ModelName  string
-	TargetID   string 
-	Critique   string
-	CreatedAt  time.Time
+	AgentID   string
+	ModelName string
+	TargetID  string
+	Critique  string
+	CreatedAt time.Time
 }
 
-// Verdict is the arbitrator's final resolution
 type Verdict struct {
 	WinnerAgentID string
 	FinalAnswer   []byte
@@ -48,27 +45,24 @@ type Verdict struct {
 	CreatedAt     time.Time
 }
 
-// Dissent records a meaningful disagreement between models
 type Dissent struct {
 	AgentID   string
 	ModelName string
-	Position  string // brief summary of what this agent argued
+	Position  string
 }
 
-// Round represents a single negotiation session over one task
 type Round struct {
-	ID        string
-	TaskID    string
-	Prompt    []byte
-	Proposals []Proposal
+	ID         string
+	TaskID     string
+	Prompt     []byte
+	Proposals  []Proposal
 	Challenges []Challenge
-	Verdict   *Verdict
-	CreatedAt time.Time
+	Verdict    *Verdict
+	CreatedAt  time.Time
 }
 
-type ModelHandler func(ctx context.Context, prompt []byte) (answer []byte, reasoning string, err error)
+type ModelHandler func(ctx context.Context, prompt []byte) ([]byte, string, error)
 
-// Participant is a model-backed agent that can propose and challenge
 type Participant struct {
 	AgentID   string
 	ModelName string
@@ -77,12 +71,11 @@ type Participant struct {
 }
 
 var (
-	ErrNoParticipants  = errors.New("at least two participants required")
-	ErrNoArbitrator    = errors.New("an arbitrator participant is required")
-	ErrRoundNotFound   = errors.New("round not found")
+	ErrNoParticipants = errors.New("at least two participants required")
+	ErrNoArbitrator   = errors.New("an arbitrator participant is required")
+	ErrRoundNotFound  = errors.New("round not found")
 )
 
-// Negotiator orchestrates multi-model negotiation rounds
 type Negotiator struct {
 	k            *kernel.Kernel
 	participants []*Participant
@@ -94,7 +87,6 @@ func New(k *kernel.Kernel, participants []*Participant) (*Negotiator, error) {
 	if len(participants) < 2 {
 		return nil, ErrNoParticipants
 	}
-
 	hasArbitrator := false
 	for _, p := range participants {
 		if p.Role == RoleArbitrator {
@@ -105,7 +97,6 @@ func New(k *kernel.Kernel, participants []*Participant) (*Negotiator, error) {
 	if !hasArbitrator {
 		return nil, ErrNoArbitrator
 	}
-
 	return &Negotiator{
 		k:            k,
 		participants: participants,
@@ -113,7 +104,6 @@ func New(k *kernel.Kernel, participants []*Participant) (*Negotiator, error) {
 	}, nil
 }
 
-// Run executes a full negotiation round for the given prompt.
 func (n *Negotiator) Run(ctx context.Context, taskID string, prompt []byte) (*Round, error) {
 	round := &Round{
 		ID:        uuid.NewString(),
@@ -133,40 +123,29 @@ func (n *Negotiator) Run(ctx context.Context, taskID string, prompt []byte) (*Ro
 		return round, fmt.Errorf("proposal phase failed: %w", err)
 	}
 	round.Proposals = proposals
-
-	n.publishEvent("negotiation.proposals", round.ID, fmt.Sprintf(
-		"%d proposals collected", len(proposals),
-	))
+	n.publishEvent("negotiation.proposals", round.ID, fmt.Sprintf("%d proposals collected", len(proposals)))
 
 	challenges, err := n.collectChallenges(ctx, round)
 	if err != nil {
 		return round, fmt.Errorf("challenge phase failed: %w", err)
 	}
 	round.Challenges = challenges
+	n.publishEvent("negotiation.challenges", round.ID, fmt.Sprintf("%d challenges collected", len(challenges)))
 
-	n.publishEvent("negotiation.challenges", round.ID, fmt.Sprintf(
-		"%d challenges collected", len(challenges),
-	))
-
-	// arbitrate
 	verdict, err := n.arbitrate(ctx, round)
 	if err != nil {
 		return round, fmt.Errorf("arbitration failed: %w", err)
 	}
 	round.Verdict = verdict
-
 	n.publishEvent("negotiation.verdict", round.ID, string(verdict.FinalAnswer))
 
-	log.Printf("[negotiation %s] verdict reached, %d dissents recorded",
-		round.ID[:8], len(verdict.Dissents))
-
+	log.Printf("[negotiation %s] verdict reached, %d dissents recorded", round.ID[:8], len(verdict.Dissents))
 	return round, nil
 }
 
 func (n *Negotiator) GetRound(id string) (*Round, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-
 	r, ok := n.rounds[id]
 	if !ok {
 		return nil, ErrRoundNotFound
@@ -187,9 +166,17 @@ func (n *Negotiator) collectProposals(ctx context.Context, round *Round) ([]Prop
 			continue
 		}
 
+		// register a task with the scheduler so active count reflects real work
+		task, _ := n.k.SubmitTask([]byte(fmt.Sprintf("proposal:%s:%s", round.ID[:8], p.AgentID)))
+
 		wg.Add(1)
-		go func(p *Participant) {
+		go func(p *Participant, task *types.Task) {
 			defer wg.Done()
+			defer func() {
+				if task != nil {
+					n.k.Scheduler.Complete(task.ID)
+				}
+			}()
 
 			answer, reasoning, err := p.Handler(ctx, round.Prompt)
 			if err != nil {
@@ -210,12 +197,13 @@ func (n *Negotiator) collectProposals(ctx context.Context, round *Round) ([]Prop
 				CreatedAt: time.Now(),
 			})
 			mu.Unlock()
-		}(p)
+		}(p, task)
 	}
 
 	wg.Wait()
 	return proposals, firstErr
 }
+
 func (n *Negotiator) collectChallenges(ctx context.Context, round *Round) ([]Challenge, error) {
 	var (
 		mu         sync.Mutex
@@ -227,15 +215,21 @@ func (n *Negotiator) collectChallenges(ctx context.Context, round *Round) ([]Cha
 		if p.Role == RoleArbitrator {
 			continue
 		}
-
 		for _, proposal := range round.Proposals {
 			if proposal.AgentID == p.AgentID {
-				continue // Making sure own proposal isn't challenged
+				continue
 			}
 
+			task, _ := n.k.SubmitTask([]byte(fmt.Sprintf("challenge:%s:%s", round.ID[:8], p.AgentID)))
+
 			wg.Add(1)
-			go func(p *Participant, target Proposal) {
+			go func(p *Participant, target Proposal, task *types.Task) {
 				defer wg.Done()
+				defer func() {
+					if task != nil {
+						n.k.Scheduler.Complete(task.ID)
+					}
+				}()
 
 				challengePrompt := fmt.Sprintf(
 					"Original question: %s\n\nAnother model answered: %s\nIts reasoning: %s\n\nDo you agree or disagree? State your critique concisely.",
@@ -256,7 +250,7 @@ func (n *Negotiator) collectChallenges(ctx context.Context, round *Round) ([]Cha
 					CreatedAt: time.Now(),
 				})
 				mu.Unlock()
-			}(p, proposal)
+			}(p, proposal, task)
 		}
 	}
 
@@ -273,7 +267,6 @@ func (n *Negotiator) arbitrate(ctx context.Context, round *Round) (*Verdict, err
 		}
 	}
 
-	// arbitration prompt
 	summary := fmt.Sprintf("Question: %s\n\n", round.Prompt)
 	for _, prop := range round.Proposals {
 		summary += fmt.Sprintf("Model %s answered: %s\nReasoning: %s\n\n",
@@ -285,13 +278,20 @@ func (n *Negotiator) arbitrate(ctx context.Context, round *Round) (*Verdict, err
 	}
 	summary += "Based on the above, provide the best final answer."
 
+	// arbitration also counts as active work
+	task, _ := n.k.SubmitTask([]byte(fmt.Sprintf("arbitrate:%s", round.ID[:8])))
+	defer func() {
+		if task != nil {
+			n.k.Scheduler.Complete(task.ID)
+		}
+	}()
+
 	finalAnswer, reasoning, err := arbitrator.Handler(ctx, []byte(summary))
 	if err != nil {
 		return nil, fmt.Errorf("arbitrator failed: %w", err)
 	}
 
 	var dissents []Dissent
-	winnerID := arbitrator.AgentID
 	for _, prop := range round.Proposals {
 		if string(prop.Payload) != string(finalAnswer) {
 			dissents = append(dissents, Dissent{
@@ -303,7 +303,7 @@ func (n *Negotiator) arbitrate(ctx context.Context, round *Round) (*Verdict, err
 	}
 
 	return &Verdict{
-		WinnerAgentID: winnerID,
+		WinnerAgentID: arbitrator.AgentID,
 		FinalAnswer:   finalAnswer,
 		Reasoning:     reasoning,
 		Dissents:      dissents,
