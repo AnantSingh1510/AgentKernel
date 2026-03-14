@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	ollamaadapter "github.com/AnantSingh1510/agentd/adapters/ollama"
 	"github.com/AnantSingh1510/agentd/controlplane/api"
 	"github.com/AnantSingh1510/agentd/controlplane/autoscaler"
 	"github.com/AnantSingh1510/agentd/kernel"
@@ -29,43 +30,36 @@ var serveCmd = &cobra.Command{
 		}
 		defer k.Shutdown()
 
-		// default echo handler — swap for real LLM adapter later
-		handler := func(ctx context.Context, payload []byte) ([]byte, error) {
-			log.Printf("[worker] executing: %s", string(payload))
-			return []byte("echo: " + string(payload)), nil
-		}
-
-		// boot autoscaler
-		ascfg := autoscaler.DefaultConfig()
-		as := autoscaler.New(k, ascfg, worker.Handler(handler))
+		// LLM-backed worker handler
+		llm := ollamaadapter.New("llama3.2")
+		as := autoscaler.New(k, autoscaler.DefaultConfig(), worker.Handler(llm.WorkerHandler()))
 		as.Start(context.Background())
 		defer as.Stop()
 
-		// stub negotiator with echo participants
+		// Three participants — same model, different roles.
+		// Swap models here once you have multiple ollama models pulled.
+		alpha := ollamaadapter.New("llama3.2")
+		beta  := ollamaadapter.New("llama3.2")
+		arb   := ollamaadapter.New("llama3.2")
+
 		participants := []*negotiation.Participant{
 			{
 				AgentID:   "agent-alpha",
-				ModelName: "echo-a",
+				ModelName: "llama3.2-alpha",
 				Role:      negotiation.RoleProposer,
-				Handler: func(ctx context.Context, prompt []byte) ([]byte, string, error) {
-					return prompt, "echo participant alpha", nil
-				},
+				Handler:   alpha.Handler(),
 			},
 			{
 				AgentID:   "agent-beta",
-				ModelName: "echo-b",
+				ModelName: "llama3.2-beta",
 				Role:      negotiation.RoleChallenger,
-				Handler: func(ctx context.Context, prompt []byte) ([]byte, string, error) {
-					return prompt, "echo participant beta", nil
-				},
+				Handler:   beta.Handler(),
 			},
 			{
 				AgentID:   "agent-arb",
-				ModelName: "echo-arb",
+				ModelName: "llama3.2-arb",
 				Role:      negotiation.RoleArbitrator,
-				Handler: func(ctx context.Context, prompt []byte) ([]byte, string, error) {
-					return prompt, "arbitrated", nil
-				},
+				Handler:   arb.Handler(),
 			},
 		}
 
@@ -76,7 +70,6 @@ var serveCmd = &cobra.Command{
 
 		srv := api.New(k, neg)
 
-		// graceful shutdown on SIGINT/SIGTERM
 		quit := make(chan os.Signal, 1)
 		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
@@ -86,7 +79,7 @@ var serveCmd = &cobra.Command{
 			srv.Stop()
 		}()
 
-		log.Printf("agentd listning on %s", listenAddr)
+		log.Printf("agentd listening on %s", listenAddr)
 		return srv.Listen(listenAddr)
 	},
 }
