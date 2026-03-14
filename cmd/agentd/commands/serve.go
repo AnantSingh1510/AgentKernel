@@ -30,28 +30,28 @@ var serveCmd = &cobra.Command{
 		}
 		defer k.Shutdown()
 
-		// LLM-backed worker handler
 		llm := ollamaadapter.New("llama3.2")
 		as := autoscaler.New(k, autoscaler.DefaultConfig(), worker.Handler(llm.WorkerHandler()))
 		as.Start(context.Background())
 		defer as.Stop()
 
-		// Three participants — same model, different roles.
-		// Swap models here once you have multiple ollama models pulled.
+		// alpha  — llama3.2
+		// beta   — mistral
+		// arb    — llama3.2 (arbitrator sees both, model choice matters less here)
 		alpha := ollamaadapter.New("llama3.2")
-		beta  := ollamaadapter.New("llama3.2")
+		beta  := ollamaadapter.New("mistral")
 		arb   := ollamaadapter.New("llama3.2")
 
 		participants := []*negotiation.Participant{
 			{
 				AgentID:   "agent-alpha",
-				ModelName: "llama3.2-alpha",
+				ModelName: "llama3.2",
 				Role:      negotiation.RoleProposer,
 				Handler:   alpha.Handler(),
 			},
 			{
 				AgentID:   "agent-beta",
-				ModelName: "llama3.2-beta",
+				ModelName: "mistral",
 				Role:      negotiation.RoleChallenger,
 				Handler:   beta.Handler(),
 			},
