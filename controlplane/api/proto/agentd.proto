@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package agentd;
+option go_package = "github.com/AnantSingh1510/agentd/controlplane/api/proto";
+
+service AgentD {
+  rpc SubmitTask(SubmitTaskRequest)     returns (SubmitTaskResponse);
+  rpc GetTask(GetTaskRequest)           returns (GetTaskResponse);
+  rpc ListWorkers(ListWorkersRequest)   returns (ListWorkersResponse);
+  rpc RegisterWorker(RegisterWorkerRequest) returns (RegisterWorkerResponse);
+  rpc RunNegotiation(NegotiationRequest) returns (NegotiationResponse);
+}
+
+message SubmitTaskRequest {
+  bytes payload = 1;
+}
+
+message SubmitTaskResponse {
+  string task_id  = 1;
+  string status   = 2;
+  string worker_id = 3;
+}
+
+message GetTaskRequest {
+  string task_id = 1;
+}
+
+message GetTaskResponse {
+  string task_id   = 1;
+  string status    = 2;
+  string worker_id = 3;
+}
+
+message ListWorkersRequest {}
+
+message ListWorkersResponse {
+  repeated WorkerInfo workers = 1;
+}
+
+message WorkerInfo {
+  string id       = 1;
+  int32  capacity = 2;
+  int32  active   = 3;
+}
+
+message RegisterWorkerRequest {
+  string id       = 1;
+  int32  capacity = 2;
+}
+
+message RegisterWorkerResponse {
+  bool success = 1;
+}
+
+message NegotiationRequest {
+  string task_id = 1;
+  bytes  prompt  = 2;
+}
+
+message NegotiationResponse {
+  string round_id      = 1;
+  bytes  final_answer  = 2;
+  string reasoning     = 3;
+  repeated DissentInfo dissents = 4;
+}
+
+message DissentInfo {
+  string agent_id   = 1;
+  string model_name = 2;
+  string position   = 3;
+}

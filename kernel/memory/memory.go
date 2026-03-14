@@ -15,12 +15,10 @@ var (
 	ErrNotFound   = errors.New("key not found")
 )
 
-// Store provides namespaced key-value storage per agent
 type Store struct {
 	client *redis.Client
 }
 
-// New connects to Redis at the given address (e.g. "localhost:6379")
 func New(addr string) (*Store, error) {
 	client := redis.NewClient(&redis.Options{
 		Addr:         addr,
@@ -39,7 +37,6 @@ func New(addr string) (*Store, error) {
 	return &Store{client: client}, nil
 }
 
-// Set stores a value under a key scoped to the given agentID
 func (s *Store) Set(ctx context.Context, agentID, key string, value []byte, ttl time.Duration) error {
 	if agentID == "" {
 		return ErrEmptyAgent
@@ -50,7 +47,6 @@ func (s *Store) Set(ctx context.Context, agentID, key string, value []byte, ttl 
 	return s.client.Set(ctx, s.ns(agentID, key), value, ttl).Err()
 }
 
-// Get retrieves a value scoped to the given agentID
 func (s *Store) Get(ctx context.Context, agentID, key string) ([]byte, error) {
 	if agentID == "" {
 		return nil, ErrEmptyAgent
@@ -69,7 +65,6 @@ func (s *Store) Get(ctx context.Context, agentID, key string) ([]byte, error) {
 	return val, nil
 }
 
-// Delete removes a key scoped to the given agentID
 func (s *Store) Delete(ctx context.Context, agentID, key string) error {
 	if agentID == "" {
 		return ErrEmptyAgent
@@ -80,7 +75,6 @@ func (s *Store) Delete(ctx context.Context, agentID, key string) error {
 	return s.client.Del(ctx, s.ns(agentID, key)).Err()
 }
 
-// Keys returns all keys belonging to an agent
 func (s *Store) Keys(ctx context.Context, agentID string) ([]string, error) {
 	if agentID == "" {
 		return nil, ErrEmptyAgent
@@ -92,7 +86,6 @@ func (s *Store) Keys(ctx context.Context, agentID string) ([]string, error) {
 		return nil, err
 	}
 
-	// strip the namespace prefix before returning
 	stripped := make([]string, len(keys))
 	for i, k := range keys {
 		prefix := fmt.Sprintf("agent:%s:", agentID)
@@ -101,7 +94,6 @@ func (s *Store) Keys(ctx context.Context, agentID string) ([]string, error) {
 	return stripped, nil
 }
 
-// Flush deletes all keys belonging to an agent
 func (s *Store) Flush(ctx context.Context, agentID string) error {
 	if agentID == "" {
 		return ErrEmptyAgent
@@ -117,12 +109,10 @@ func (s *Store) Flush(ctx context.Context, agentID string) error {
 	return s.client.Del(ctx, keys...).Err()
 }
 
-// Close closes the Redis connection
 func (s *Store) Close() error {
 	return s.client.Close()
 }
 
-// ns builds the namespaced key: agent:<agentID>:<key>
 func (s *Store) ns(agentID, key string) string {
 	return fmt.Sprintf("agent:%s:%s", agentID, key)
 }

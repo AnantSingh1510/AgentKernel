@@ -145,3 +145,14 @@ func (s *Scheduler) pickWorker() *types.Worker {
 	}
 	return best
 }
+
+func (s *Scheduler) ListWorkers() []*types.Worker {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	workers := make([]*types.Worker, 0, len(s.workers))
+	for _, w := range s.workers {
+		workers = append(workers, w)
+	}
+	return workers
+}

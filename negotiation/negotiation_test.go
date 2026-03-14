@@ -17,7 +17,6 @@ func setupKernel(t *testing.T) *kernel.Kernel {
 	return k
 }
 
-// fakeHandler returns a fixed answer and reasoning — no LLM needed
 func fakeHandler(answer, reasoning string) ModelHandler {
 	return func(ctx context.Context, prompt []byte) ([]byte, string, error) {
 		return []byte(answer), reasoning, nil
@@ -113,7 +112,6 @@ func TestRoundCollectsProposals(t *testing.T) {
 	n, _ := New(k, participants(k))
 	round, _ := n.Run(context.Background(), "task-2", []byte("What is 2+2?"))
 
-	// two non-arbitrator participants
 	if len(round.Proposals) != 2 {
 		t.Fatalf("expected 2 proposals, got %d", len(round.Proposals))
 	}

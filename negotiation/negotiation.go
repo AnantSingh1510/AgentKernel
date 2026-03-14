@@ -34,7 +34,7 @@ type Proposal struct {
 type Challenge struct {
 	AgentID    string
 	ModelName  string
-	TargetID   string // AgentID of the proposal being challenged
+	TargetID   string 
 	Critique   string
 	CreatedAt  time.Time
 }
@@ -66,8 +66,6 @@ type Round struct {
 	CreatedAt time.Time
 }
 
-// ModelHandler is the function signature for any LLM backend.
-// It receives a prompt and returns an answer and the model's reasoning.
 type ModelHandler func(ctx context.Context, prompt []byte) (answer []byte, reasoning string, err error)
 
 // Participant is a model-backed agent that can propose and challenge
@@ -92,8 +90,6 @@ type Negotiator struct {
 	mu           sync.Mutex
 }
 
-// New creates a Negotiator. Participants must include at least two
-// proposers/challengers and exactly one arbitrator.
 func New(k *kernel.Kernel, participants []*Participant) (*Negotiator, error) {
 	if len(participants) < 2 {
 		return nil, ErrNoParticipants
@@ -118,7 +114,6 @@ func New(k *kernel.Kernel, participants []*Participant) (*Negotiator, error) {
 }
 
 // Run executes a full negotiation round for the given prompt.
-// It blocks until a verdict is reached or the context is cancelled.
 func (n *Negotiator) Run(ctx context.Context, taskID string, prompt []byte) (*Round, error) {
 	round := &Round{
 		ID:        uuid.NewString(),
@@ -133,7 +128,6 @@ func (n *Negotiator) Run(ctx context.Context, taskID string, prompt []byte) (*Ro
 
 	log.Printf("[negotiation %s] starting round for task %s", round.ID[:8], taskID)
 
-	// Phase 1 — collect proposals from all non-arbitrator participants
 	proposals, err := n.collectProposals(ctx, round)
 	if err != nil {
 		return round, fmt.Errorf("proposal phase failed: %w", err)
@@ -144,7 +138,6 @@ func (n *Negotiator) Run(ctx context.Context, taskID string, prompt []byte) (*Ro
 		"%d proposals collected", len(proposals),
 	))
 
-	// Phase 2 — collect challenges
 	challenges, err := n.collectChallenges(ctx, round)
 	if err != nil {
 		return round, fmt.Errorf("challenge phase failed: %w", err)
@@ -155,7 +148,7 @@ func (n *Negotiator) Run(ctx context.Context, taskID string, prompt []byte) (*Ro
 		"%d challenges collected", len(challenges),
 	))
 
-	// Phase 3 — arbitrate
+	// arbitrate
 	verdict, err := n.arbitrate(ctx, round)
 	if err != nil {
 		return round, fmt.Errorf("arbitration failed: %w", err)
@@ -170,7 +163,6 @@ func (n *Negotiator) Run(ctx context.Context, taskID string, prompt []byte) (*Ro
 	return round, nil
 }
 
-// GetRound returns a past round by ID
 func (n *Negotiator) GetRound(id string) (*Round, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -182,7 +174,6 @@ func (n *Negotiator) GetRound(id string) (*Round, error) {
 	return r, nil
 }
 
-// collectProposals runs all proposer/challenger participants in parallel
 func (n *Negotiator) collectProposals(ctx context.Context, round *Round) ([]Proposal, error) {
 	var (
 		mu        sync.Mutex
@@ -225,9 +216,6 @@ func (n *Negotiator) collectProposals(ctx context.Context, round *Round) ([]Prop
 	wg.Wait()
 	return proposals, firstErr
 }
-
-// collectChallenges asks each non-arbitrator participant to critique
-// every proposal that isn't their own
 func (n *Negotiator) collectChallenges(ctx context.Context, round *Round) ([]Challenge, error) {
 	var (
 		mu         sync.Mutex
@@ -242,7 +230,7 @@ func (n *Negotiator) collectChallenges(ctx context.Context, round *Round) ([]Cha
 
 		for _, proposal := range round.Proposals {
 			if proposal.AgentID == p.AgentID {
-				continue // don't challenge your own proposal
+				continue // Making sure own proposal isn't challenged
 			}
 
 			wg.Add(1)
@@ -276,7 +264,6 @@ func (n *Negotiator) collectChallenges(ctx context.Context, round *Round) ([]Cha
 	return challenges, nil
 }
 
-// arbitrate asks the arbitrator participant to resolve the round
 func (n *Negotiator) arbitrate(ctx context.Context, round *Round) (*Verdict, error) {
 	var arbitrator *Participant
 	for _, p := range n.participants {
@@ -286,7 +273,7 @@ func (n *Negotiator) arbitrate(ctx context.Context, round *Round) (*Verdict, err
 		}
 	}
 
-	// Build arbitration prompt
+	// arbitration prompt
 	summary := fmt.Sprintf("Question: %s\n\n", round.Prompt)
 	for _, prop := range round.Proposals {
 		summary += fmt.Sprintf("Model %s answered: %s\nReasoning: %s\n\n",
@@ -303,7 +290,6 @@ func (n *Negotiator) arbitrate(ctx context.Context, round *Round) (*Verdict, err
 		return nil, fmt.Errorf("arbitrator failed: %w", err)
 	}
 
-	// Record dissents — proposals that differ from the winner
 	var dissents []Dissent
 	winnerID := arbitrator.AgentID
 	for _, prop := range round.Proposals {
