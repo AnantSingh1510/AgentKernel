@@ -86,7 +86,7 @@ var serveCmd = &cobra.Command{
 			srv.Stop()
 		}()
 
-		log.Printf("agentd listnin on %s", listenAddr)
+		log.Printf("agentd listning on %s", listenAddr)
 		return srv.Listen(listenAddr)
 	},
 }
